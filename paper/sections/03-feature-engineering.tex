@@ -1,0 +1,98 @@
+\section{Feature Engineering}
+\label{sec:features}
+
+In the sibling BPR and SVD projects, the feature layer produces auxiliary
+signal: confidence weights, popularity priors, content features consulted
+only as a cold-start fallback. Here the feature layer \emph{is} the model's
+representation -- there is no separate identity-indexed embedding table that
+the features merely augment. This changes what correctness means for the
+pipeline: a bug in a feature transform is not a secondary signal degrading
+gracefully, it is a bug in the thing being factorized.
+
+\subsection{Declarative specification}
+
+\texttt{conf/features.yaml} declares every feature once, consumed
+identically by training and by the serving path
+(\texttt{tests/test\_features\_parity.py} asserts the two never drift apart).
+Each declaration carries a \emph{fit scope}:
+
+\begin{itemize}
+  \item \textbf{catalogue} -- known the moment a product is listed (brand,
+        category, price bucket, ingredient tags). Always available, cold
+        item or not.
+  \item \textbf{profile} -- a static, self-reported user attribute (skin
+        type, skin tone). Not a statistic, so not subject to the train-only
+        rule; a brand-new user supplies it at signup.
+  \item \textbf{train\_only} -- a vocabulary or statistic restricted to the
+        training partition. Both identity features (\texttt{user\_identity},
+        \texttt{item\_identity}) use this scope: the vocabulary of ID tokens
+        literally does not contain an entry for a withheld entity, which is
+        what makes cold-start an operationalized property of the pipeline
+        rather than an assertion about it.
+\end{itemize}
+
+Table~\ref{tab:features} lists every declared feature with its family, kind
+and scope; the per-feature rationale (Table~\ref{tab:feature-rationale})
+documents why each one was declared.
+
+\input{tables/features}
+
+\begin{table}[h]
+  \centering
+  \caption{Per-feature rationale, generated from the \texttt{rationale}
+  field every entry in \texttt{conf/features.yaml} is required to carry
+  (\texttt{test\_features\_schema.py} rejects a feature without one).}
+  \label{tab:feature-rationale}
+  \input{tables/feature-rationale}
+\end{table}
+
+\subsection{Point-in-time correctness}
+
+Aggregate features derived from the interaction log (e.g.\
+\texttt{user\_review\_count\_bucket}) accept a strict cutoff and filter with
+\texttt{<}, never \texttt{<=}, against each user's own
+\texttt{interaction\_order}. \texttt{tests/test\_features\_leakage.py}
+operationalizes this directly: it injects a review positioned after the
+cutoff for an existing user and asserts that no feature value for that user
+changes, and separately asserts that a review positioned \emph{exactly at}
+the cutoff is excluded (the boundary is exclusive, not inclusive). Item-level
+aggregates (\texttt{item\_popularity\_bucket}) are instead protected by a
+\texttt{fit\_on: train\_only} contract, verified by asserting the statistic
+computed on the training partition differs from the same statistic computed
+on the full dataset -- if they matched, the held-out interactions would
+already be baked into a value the model is scored on.
+
+\subsection{A deliberate exclusion from the retrieval representation}
+
+\texttt{item\_popularity\_bucket} and \texttt{item\_catalogue\_context} are
+declared, registered and leakage-tested like every other feature, but are
+not included in the item representation the hybrid model actually
+factorizes. The reason is structural rather than a matter of taste: a
+withheld (cold) item has, by construction, exactly zero training
+interactions, so both aggregates collapse every cold item onto the same
+``unpopular'' / ``new\_arrival'' token. Including them in $\qvec_i$ would
+teach the model to systematically suppress cold items through a learned
+global popularity prior at precisely the moment we want to test whether it
+can still retrieve them through shared brand/category/ingredient structure.
+The ID-only and popularity baselines already encode an item-popularity prior
+through their own bias terms -- a prior that is, for the same structural
+reason, unavailable for a cold item -- so nothing is lost from the
+comparison by leaving these two aggregates out of the hybrid model's own
+representation; they remain fully part of the feature store, the schema and
+leakage tests, and the feature table above.
+
+\subsection{Testing surface}
+
+Three test files operationalize the three properties above:
+\texttt{test\_features\_schema.py} validates \texttt{conf/features.yaml}
+against the registry (every declared transform is implemented and vice
+versa, every identity feature is declared \texttt{train\_only}, every
+feature documents a rationale); \texttt{test\_features\_leakage.py}
+implements the point-in-time and fit-scope checks described above, plus a
+label-shuffling sanity check that destroys the user--item association and
+asserts ranking quality collapses to the random floor;
+\texttt{test\_features\_parity.py} asserts that
+\texttt{recompute\_user\_tokens}/\texttt{recompute\_item\_tokens} -- the
+functions the serving path calls for an entity outside the last training
+run -- reproduce exactly the tokens the batch-built feature store used
+during training, for every warm user/item sampled.

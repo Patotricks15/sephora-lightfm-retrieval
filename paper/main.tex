@@ -1,0 +1,84 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{xcolor}
+
+\geometry{margin=2.5cm}
+\hypersetup{colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black}
+
+\newcommand{\Uset}{\mathcal{U}}
+\newcommand{\Iset}{\mathcal{I}}
+\newcommand{\Fset}{\mathcal{F}}
+\newcommand{\Rset}{\mathcal{R}}
+\newcommand{\pvec}{\mathbf{p}}
+\newcommand{\qvec}{\mathbf{q}}
+\newcommand{\evec}{\mathbf{e}}
+
+\title{\textbf{Hybrid Feature-Aware Matrix Factorization for\\
+Cold-Start Skincare Retrieval}\\[0.4em]
+\large A from-scratch WARP-loss implementation (the LightFM algorithm)\\
+with a dedicated cold-start evaluation protocol}
+
+\author{Patrick Oliveira}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+We implement hybrid, feature-aware matrix factorization trained with a
+Weighted Approximate-Rank Pairwise (WARP) loss -- the algorithm popularized by
+LightFM -- entirely from scratch in NumPy/SciPy, for top-$N$ product
+retrieval on the Sephora Products and Skincare Reviews dataset. Unlike the
+two identity-indexed sibling projects in this portfolio (BPR over anime
+titles, SVD over MovieLens ratings), user and item representations here are
+sums of \emph{feature} embeddings -- skin type and tone for users; brand,
+category, price tier and ingredient tags for products -- rather than sums
+indexed by raw identity. This is the classical, pre-deep-learning answer to
+cold start: a user or item the model has never seen individually can still be
+scored, as long as it shares known features with the training population. We
+report a dedicated cold-start evaluation slice, built by withholding a
+population of users and items from training entirely, and show the hybrid
+model retrieves measurably better-than-popularity candidates for them, while
+an ID-only matrix-factorization baseline and a pure popularity baseline both
+collapse to a score of exactly zero on the same slice -- not a close loss,
+but a structural inability to say anything at all.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Notation}
+\label{sec:notation}
+
+Let $\Uset$ be the set of users and $\Iset$ the set of items. Each user $u$
+has a set of known features $F_u \subseteq \Fset_{\text{user}}$ (skin type,
+skin tone, and -- only for users seen during training -- an identity token);
+each item $i$ has a set of known features $F_i \subseteq \Fset_{\text{item}}$
+(brand, category, price bucket, ingredient tags, and -- only for items seen
+during training -- an identity token). Every feature $f$ owns a learned
+embedding $\evec_f \in \mathbb{R}^d$. Implicit feedback is the set of
+observed positive interactions $\Rset \subseteq \Uset \times \Iset$, and
+$\Iset_u^{+} = \{\, i \in \Iset : (u,i) \in \Rset \,\}$ denotes the products a
+user reviewed positively.
+
+\input{sections/01-introduction}
+\input{sections/02-data}
+\input{sections/03-feature-engineering}
+\input{sections/04-methodology}
+\input{sections/05-evaluation}
+\input{sections/06-results}
+\input{sections/07-conclusion}
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

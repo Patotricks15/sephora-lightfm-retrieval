@@ -1,0 +1,68 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We implemented hybrid feature-aware matrix factorization with a WARP ranking
+loss end to end, from scratch in NumPy/SciPy: point-in-time feature
+engineering over demographic and catalogue attributes, a from-scratch WARP
+training loop with the stability corrections it needs in practice, a
+dedicated cold-start evaluation protocol that withholds entities from
+training entirely rather than merely their last interaction, and a
+parity-tested serving path -- precomputed top-$N$ for known entities, a
+documented request-time fallback for genuinely new ones -- deployed by
+Terraform against a local AWS emulator.
+
+The measured outcome has two parts, and we report both. On warm-start
+ranking quality, the simpler ID-only baseline wins, consistent with the
+sibling BPR project's own honest negative result: fitting a population
+everyone has already been seen in favours fewer structural constraints. On
+the cold-start slices this project was built to measure, the comparison is
+not close: popularity and ID-only MF are both \emph{structurally} incapable
+of saying anything about a withheld entity (exactly zero on every metric),
+while the hybrid model retrieves a strictly positive, if modest, signal
+through shared brand/category/ingredient structure alone.
+
+\subsection{What transfers}
+
+\begin{itemize}
+  \item \textbf{A feature store that is the model, not an accessory to it.}
+        Three dedicated test files (schema, leakage, parity) treat the
+        feature layer with the same rigor the sibling projects reserve for
+        their scoring function, because here they are the same thing.
+  \item \textbf{A cold-start harness.} Withholding entities from training
+        entirely, restricting identity vocabularies to the training
+        partition, and reporting three distinct withheld-population slices
+        is a reusable pattern for any feature-aware recommender, not
+        specific to skincare.
+  \item \textbf{A from-scratch WARP implementation} with the gradient
+        derivation and the embedding/bias clipping correction documented in
+        Section~\ref{sec:methodology}, removing the fragile \texttt{lightfm}
+        Cython dependency entirely.
+\end{itemize}
+
+\subsection{Future work}
+
+\paragraph{Sharper negative sampling.} WARP's rejection sampling degrades as
+training items increasingly separate into clear winners and losers; sampling
+negatives with a mild popularity tilt (as the sibling BPR project's own
+future-work notes propose) would very likely close part of the gap to the
+ID-only baseline on warm-start quality.
+
+\paragraph{A production-scale catalogue.} The honest caveat in
+Section~\ref{sec:results} is partly an artifact of the synthetic fixture's
+small catalogue. Running the same pipeline against the real Kaggle dataset
+(\texttt{--kaggle}, $\sim$8k products and $\sim$1M reviews) would both sharpen
+the ingredient-affinity signal and lower the chance baseline's competitiveness.
+
+\paragraph{Confidence intervals.} Repeating the cold-start comparison across
+several random withheld-population draws and reporting intervals would
+establish how much of the zero-versus-positive gap is a reliable structural
+property versus a property of one particular random split.
+
+\paragraph{Re-admitting popularity as a tempered prior.} Section
+\ref{sec:features} excludes \texttt{item\_popularity\_bucket} from the
+retrieval representation entirely because an unweighted inclusion suppressed
+cold items. A middle ground -- including it with a separately, more
+aggressively regularized embedding dimension, or only for warm items at
+inference time -- might recover some of the warm-start ranking quality lost
+to the ID-only baseline without reintroducing the cold-item suppression
+this report documents.

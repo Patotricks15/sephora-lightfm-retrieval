@@ -1,0 +1,61 @@
+\section{Data}
+\label{sec:data}
+
+The target dataset is the Sephora Products and Skincare Reviews collection
+(Kaggle ref.\ \texttt{nadyinky/sephora-products-and-skincare-reviews}):
+roughly 8{,}000 products with attributes such as category, brand, price and
+ingredient lists, and on the order of one million reviews carrying a rating,
+a recommendation flag, and reviewer attributes including skin type and skin
+tone.
+
+\subsection{Synthetic fixture}
+
+The repository ships a synthetic generator
+(\texttt{scripts/download\_data.py}) that reproduces this schema without
+requiring Kaggle credentials, so the test suite and CI run with zero external
+dependencies. Products are assigned a brand, a category, a price drawn from a
+category-appropriate range, and two to four ingredient tags; one tag is
+deliberately drawn from a fixed list of tags each skin type responds well to
+(Table~\ref{tab:skin-affinity}), so the catalogue always contains genuine
+structure for every skin type to recover, not just noise.
+
+\begin{table}[h]
+  \centering
+  \caption{Synthetic ingredient-affinity clusters. A real dataset would not
+  have this structure made explicit; the synthetic fixture encodes it so
+  that a model with the right inductive bias (shared ingredient features)
+  can be shown to recover it with a bounded sample size.}
+  \label{tab:skin-affinity}
+  \begin{tabular}{ll}
+    \toprule
+    Skin type & Preferred ingredient tags \\
+    \midrule
+    Dry & Hyaluronic Acid, Ceramides, Squalane, Glycerin \\
+    Oily & Salicylic Acid, Niacinamide, Clay, Zinc PCA \\
+    Combination & Niacinamide, Hyaluronic Acid, Green Tea \\
+    Normal & Vitamin C, Peptides, Antioxidant Complex \\
+    Sensitive & Centella Asiatica, Oat Extract, Ceramides, Panthenol \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Each synthetic user is assigned a skin type and a skin tone, and reviews
+products with a selection probability weighted by the overlap between the
+product's ingredient tags and the user's skin-type cluster, mildly tilted by
+a long-tailed popularity prior. Ratings are drawn around a centre that is
+higher for well-matched products and lower otherwise, and a review counts as
+``recommended'' only when the rating clears the implicit-feedback threshold
+(Section~\ref{sec:evaluation}). Every selection decision is keyed off
+\emph{features}, never off the raw user or product ID -- this is what gives
+a feature-aware model real structure to recover that an ID-only model
+cannot, by construction, generalize from one identity to another.
+
+\subsection{Implicit feedback}
+
+A review is treated as a positive interaction when
+$\text{rating} \geq 4$ or the reviewer explicitly marked the product as
+recommended; everything else is dropped rather than treated as an explicit
+negative, following the usual implicit-feedback convention. An iterative
+$k$-core filter then removes users and products with fewer than five
+surviving positives, looping because removing a product can push a user
+below the floor and vice versa.

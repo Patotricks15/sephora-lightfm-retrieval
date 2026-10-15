@@ -1,0 +1,122 @@
+\section{Methodology}
+\label{sec:methodology}
+
+\subsection{Score function}
+
+Both the user and item representations are sums of feature embeddings
+(Equation~\ref{eq:feature-sum}, repeated here for the score derivation):
+\begin{equation}
+  \pvec_u = \sum_{f \in F_u} \evec_f, \qquad
+  \qvec_i = \sum_{g \in F_i} \evec_g .
+\end{equation}
+The score of a user--item pair is their inner product plus an item bias,
+\begin{equation}
+  s(u, i) = \Big\langle \sum_{f \in F_u} \pvec_f,\ \sum_{g \in F_i} \qvec_g \Big\rangle
+          = \langle \pvec_u, \qvec_i \rangle + b_i ,
+  \label{eq:score}
+\end{equation}
+where $b_i = \sum_{g \in F_i} \beta_g$ is itself a sum of per-feature bias
+scalars, mirroring the embedding sum. A per-user bias is deliberately
+omitted: it would shift every item's score for that user by the same
+constant and therefore cancel out of the pairwise margin used by the loss
+below, exactly as the per-user bias does in the sibling BPR project's own
+derivation -- it would carry zero gradient under this objective.
+
+\subsection{WARP loss}
+\label{sec:warp}
+
+Weighted Approximate-Rank Pairwise loss~\cite{weston2011warp,kula2015}
+optimizes a pairwise ranking criterion like BPR, but instead of weighting
+every violated pair equally, it weights a positive pair by an \emph{estimate
+of the positive's current rank} in the full catalogue, so that correcting a
+badly mis-ranked positive contributes far more gradient than nudging one
+that is already well-placed.
+
+For a positive pair $(u, i)$, negatives $j$ are sampled uniformly and
+rejected until a margin violation is found,
+\begin{equation}
+  s(u, j) > s(u, i) - 1 ,
+\end{equation}
+or until $N_{\max}$ trials are exhausted. Let $N$ be the number of trials
+taken. Because negatives are sampled uniformly at random, the probability
+that a given negative violates the margin is approximately
+$\text{rank}(i) / (|\Iset| - 1)$, so the expected number of trials before
+the first violation is the reciprocal of that probability; inverting gives
+the rank estimate
+\begin{equation}
+  \text{rank}(i) \approx \left\lfloor \frac{|\Iset| - 1}{N} \right\rfloor .
+  \label{eq:rank-estimate}
+\end{equation}
+Few trials imply many items already violate the margin, i.e.\ $i$ is ranked
+low; many trials imply $i$ is already hard to beat, i.e.\ ranked high. The
+hinge loss for the triplet is weighted by the margin-ranking loss function
+\begin{equation}
+  L(\text{rank}(i)) = \sum_{r=1}^{\text{rank}(i)} \frac{1}{r} ,
+  \label{eq:warp-weight}
+\end{equation}
+a harmonic sum that grows (slowly) with rank, so that
+\begin{equation}
+  \ell(u, i, j) = L(\text{rank}(i)) \cdot \max\!\big(0,\ 1 - s(u,i) + s(u,j)\big) .
+  \label{eq:warp-loss}
+\end{equation}
+
+\subsection{Gradients and the update rule}
+
+Write $m = 1 - s(u,i) + s(u,j)$ for the margin and $w = L(\text{rank}(i))$
+for the WARP weight; $\ell = w \cdot \max(0, m)$ is non-zero, and has a
+gradient, only when $m > 0$. For an active triplet,
+\begin{align}
+  \frac{\partial \ell}{\partial s(u,i)} &= -w , &
+  \frac{\partial \ell}{\partial s(u,j)} &= +w .
+\end{align}
+Since $s(u,i) = \langle \pvec_u, \qvec_i \rangle + b_i$ and every feature
+embedding is shared across every entity that carries that feature, the
+chain rule distributes the gradient to \emph{every active feature
+embedding} of $u$, $i$ and $j$ simultaneously:
+\begin{align}
+  \pvec_u \text{'s features } f &:\ \evec_f \leftarrow \evec_f +
+    \eta \big( w (\qvec_i - \qvec_j) - \lambda \evec_f \big) , \\
+  \qvec_i \text{'s features } g &:\ \evec_g \leftarrow \evec_g +
+    \eta \big( w \, \pvec_u - \lambda \evec_g \big) , \\
+  \qvec_j \text{'s features } g &:\ \evec_g \leftarrow \evec_g +
+    \eta \big( {-w} \, \pvec_u - \lambda \evec_g \big) , \\
+  b_i \text{'s features } g &:\ \beta_g \leftarrow \beta_g + \eta \big( w - \lambda \beta_g \big) , \\
+  b_j \text{'s features } g &:\ \beta_g \leftarrow \beta_g + \eta \big( {-w} - \lambda \beta_g \big) ,
+\end{align}
+with learning rate $\eta$ and L2 penalty $\lambda$. This is the sense in
+which the model is a classical, linear SGD factorization: every update is a
+closed-form linear-algebra step on embeddings, with no hidden layer and no
+nonlinear activation anywhere in the forward pass.
+
+\paragraph{A stability correction that matters in practice.} A feature
+shared by many low-popularity training items (in our pipeline this would
+have been \texttt{popularity=0}, had it not been excluded from the
+representation per Section~\ref{sec:features}) is sampled as a WARP
+negative about as often as any other feature but is rarely part of a
+positive, so with only a weak L2 pull its bias term can diverge far faster
+than $\lambda$ counteracts it -- in early experiments this drove cold-item
+scores to the bottom of the ranking regardless of their brand/ingredient
+match. Clipping every touched embedding to a bounded L2 norm and every
+touched bias scalar to a bounded magnitude after each update (both
+configurable; LightFM's own reference implementation does the same for
+embeddings) removes the divergence without changing the gradient direction,
+only its magnitude.
+
+\subsection{Baselines}
+
+\paragraph{ID-only MF (BPR).} The same pairwise-SGD family, but the user and
+item representations are raw identity rows/columns rather than feature
+sums -- structurally identical to the sibling BPR project. A user or item
+absent from training has no row or column, so its score collapses to the
+item bias term alone (a pure popularity signal) for warm items, and to
+\emph{nothing meaningful at all} for a cold item, since that item's bias was
+also never trained; its factor and bias are masked out of the rank for every
+user, warm or cold.
+
+\paragraph{Most-popular.} Ranks every user by the same global training-count
+order. Just like the ID-only baseline, a cold item has a training count of
+exactly zero and is therefore never recommended by this baseline either.
+
+\paragraph{Random.} A seeded uniform permutation per user, which calibrates
+the metric scale; because its coverage is total and uncorrelated with
+quality, high coverage alone is not evidence of a good model.

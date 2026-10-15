@@ -1,0 +1,70 @@
+\section{Evaluation Protocol}
+\label{sec:evaluation}
+
+Two different notions of ``holdout'' are used, and keeping them distinct is
+the whole point of this report.
+
+\subsection{Warm-start: leave-last-one-out}
+
+Within the population of users retained after core filtering, each user's
+last interaction (by true review timestamp) is held out for test, the
+second-to-last for validation, and the rest for training. Users without
+enough history to leave at least three training interactions contribute
+only to training and are never evaluated, which avoids inflating metrics
+with users whose ``history'' is a single review.
+
+\subsection{Cold-start: entities withheld entirely}
+
+Before the warm-start split is computed, a fraction of users and a fraction
+of items (8\% each, by default) are selected uniformly at random and every
+interaction touching either is removed from the training-eligible pool
+\emph{before} any splitting happens. The warm-start split above is then
+computed only over the remainder. Three evaluation slices follow directly
+from this construction:
+
+\begin{itemize}
+  \item \textbf{New user, known item} (\texttt{cold\_user\_eval}): reviews
+        by a withheld user against a product that \emph{was} trained on.
+        Tests whether shared demographic features let the model retrieve
+        for a user it has never seen.
+  \item \textbf{Known user, new item} (\texttt{cold\_item\_eval}): reviews
+        by a trained user against a withheld product. Tests whether shared
+        brand/category/ingredient features let the model retrieve a product
+        it has never seen for a user whose taste it has learned.
+  \item \textbf{New user, new item} (\texttt{cold\_both\_eval}): both sides
+        withheld -- the hardest slice, reported for completeness.
+\end{itemize}
+
+Because the identity-feature vocabulary (Section~\ref{sec:features}) is
+built from the training partition alone, a withheld entity provably has no
+identity token in either the hybrid model or the ID-only baseline. The
+exclusion set passed to every model's ranking call is empty for these
+slices: there is no training history to hide, which is exactly the point.
+
+\subsection{Metrics}
+
+For every evaluated user, the model ranks the full catalogue (excluding
+training history, where applicable) and NDCG@$K$, Recall@$K$ and MAP@$K$ are
+computed against the relevant set -- a single item for the warm-start
+partitions (leave-last-one-out), potentially several for the cold-start
+slices (every interaction a withheld entity has is relevant, since all of
+them were excluded from training).
+\begin{align}
+  \text{NDCG@}K &= \frac{1}{|\Uset_{\text{eval}}|} \sum_{u}
+    \frac{\sum_{k=1}^{K} \mathbb{1}[\text{rel}(k)] / \log_2(k+1)}{\text{IDCG}_u} , \\
+  \text{Recall@}K &= \frac{1}{|\Uset_{\text{eval}}|} \sum_{u}
+    \frac{|\{\text{relevant items retrieved in top-}K\}|}{|\text{relevant items for } u|} , \\
+  \text{MAP@}K &= \frac{1}{|\Uset_{\text{eval}}|} \sum_{u}
+    \frac{1}{\min(|\text{relevant}_u|, K)} \sum_{k=1}^{K} \mathbb{1}[\text{rel}(k)] \cdot \text{Precision@}k .
+\end{align}
+
+\subsection{Hyperparameter selection}
+
+Hyperparameters for every model (hybrid and baselines alike) are fixed
+before the test partition and both cold-start slices are read; the values
+used are recorded in \texttt{src/recommender/cli.py}
+(\texttt{BEST\_HYBRID}, \texttt{BEST\_ID\_MF}) and are the same values the
+table-generation script (\texttt{scripts/export\_results\_table.py}) uses,
+so the numbers in Section~\ref{sec:results} are reproducible from a clean
+checkout with \texttt{python scripts/download\_data.py \&\& python
+scripts/export\_results\_table.py}.

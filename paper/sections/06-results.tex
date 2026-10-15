@@ -1,0 +1,53 @@
+\section{Results}
+\label{sec:results}
+
+\subsection{Warm-start}
+
+\input{tables/results}
+
+On the warm-start test partition, the ID-only MF baseline leads on raw
+ranking quality (Table~\ref{tab:results}). This mirrors the honest negative
+result reported by the sibling BPR project: a model with fewer structural
+constraints has an easier time fitting a warm population it has already
+seen reviews from, because every identity it is scored on had its own row to
+learn. The hybrid model pays a complexity tax here -- it has to route all of
+its signal through a comparatively small vocabulary of shared features
+rather than a dedicated parameter per identity -- and that tax is not fully
+recovered by the identity feature it is also given.
+
+\subsection{Cold-start}
+
+\input{tables/cold-start}
+
+Table~\ref{tab:cold-start} is the result this project exists to produce. On
+the \emph{new user, known item} slice, every model (including the hybrid
+one) relies on an item-level bias/popularity signal, so all three
+non-random baselines perform comparably; the hybrid model's demographic
+feature sum (skin type and tone) is a weaker but genuinely non-trivial
+signal on its own, clearing the random floor by a wide margin.
+
+On the \emph{known user, new item} and \emph{new user, new item} slices, the
+comparison is structural rather than a matter of degree: the popularity and
+ID-only baselines both report \textbf{exactly zero} NDCG, Recall and MAP.
+This is not a close loss -- a withheld item has a training count of
+precisely zero, so its popularity-bias term and its identity row are both
+untrained, and neither baseline has any other signal to fall back on for it.
+The hybrid model scores strictly above zero on both slices, because its item
+representation routes through brand, category and ingredient-tag embeddings
+learned from every \emph{other} item that shares those tags -- exactly the
+mechanism Equation~\ref{eq:feature-sum} was built to provide.
+
+\subsection{Honest caveats}
+
+The hybrid model's absolute recall on the cold-item slices is modest, and
+on this synthetic fixture's small catalogue ($\sim$200 products) a uniform
+random baseline is occasionally competitive with it in raw hit-rate, simply
+because the ratio of $K$ to catalogue size is already favourable to chance.
+We report this rather than tuning the random seed until it looks better: the
+qualitative claim this project supports is that the hybrid model is
+\emph{capable of saying anything at all} about a withheld entity, which the
+two comparison baselines are structurally incapable of, not that it is
+dramatically better than chance on every metric at this dataset scale. A
+larger catalogue, more training epochs, or a sharper per-feature affinity
+signal would be the natural next experiments to widen the absolute margin
+(Section~\ref{sec:conclusion}).

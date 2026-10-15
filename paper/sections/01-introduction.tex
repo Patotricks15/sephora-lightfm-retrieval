@@ -1,0 +1,81 @@
+\section{Introduction}
+\label{sec:introduction}
+
+Every recommender in this portfolio is implicit-feedback matrix
+factorization; what differs between them is what gets factorized. The anime
+project factorizes a $73\text{k} \times 12\text{k}$ matrix of raw user and
+item identities with a BPR loss~\cite{rendle2009bpr}; the MovieLens project
+factorizes an explicit rating matrix with truncated SVD. Both share the same
+structural limitation: a row or column exists only for an identity observed
+during training. A user who signs up the day after the last retraining job,
+or a product added to the catalogue this morning, has no row or column at
+all, and the only fallback available to an identity-indexed model is
+non-personalized popularity.
+
+\subsection{The hybrid alternative}
+
+LightFM~\cite{kula2015} reframes the factorization: instead of learning one
+embedding per user and one per item, it learns one embedding per
+\emph{feature}, and represents a user or item as the sum of the embeddings
+of its known features,
+\begin{equation}
+  \pvec_u = \sum_{f \in F_u} \evec_f, \qquad
+  \qvec_i = \sum_{g \in F_i} \evec_g .
+  \label{eq:feature-sum}
+\end{equation}
+A brand-new user who has filled in a skin-type and skin-tone profile already
+has a well-defined $\pvec_u$, built from embeddings the model learned from
+every \emph{other} user who shares those two attributes. The same holds for a
+brand-new product described by its brand, category, price tier and
+ingredient tags. Identity is folded in as just one more feature -- present
+for users/items observed during training, deliberately absent otherwise --
+so the model degrades gracefully to a pure content-based recommender rather
+than failing outright.
+
+This is a classical, linear, SGD-trained model: there are no hidden layers
+and no nonlinear activations between the feature sum and the score. The
+contribution of this report is not a new loss function; it is (a) a
+from-scratch, dependency-free implementation of the WARP loss that LightFM
+popularized, and (b) a cold-start evaluation protocol precise enough to
+quantify the gap between a hybrid and an identity-only model, rather than
+asserting it qualitatively.
+
+\subsection{Why not depend on the \texttt{lightfm} package}
+
+The \texttt{lightfm} PyPI package exists and implements the same idea, but
+its Cython extension is compiled against a fixed, old NumPy ABI and routinely
+fails to build on current Python/NumPy combinations -- exactly the kind of
+fragile dependency a portfolio repository should not ask a reviewer to fight
+with. Reimplementing the algorithm in plain NumPy/SciPy (Section
+\ref{sec:methodology}) removes that dependency entirely while keeping every
+equation in this report directly traceable to a function in the
+repository.
+
+\subsection{Scope and claims}
+
+\begin{enumerate}
+  \item The feature layer is point-in-time correct. Aggregate features are
+        computed with a strict \texttt{<} cutoff against each user's own
+        interaction order, never \texttt{<=}, and this is enforced by tests
+        that inject a future review and assert no feature value changes
+        (Section~\ref{sec:features}).
+  \item Cold-start is an operationalized test, not a claim. A population of
+        users and items is withheld from training \emph{entirely} -- not
+        merely their last interaction -- and the identity-feature vocabulary
+        is built only from the training partition, so a cold entity provably
+        has no ID token available (Section~\ref{sec:evaluation}).
+  \item The comparison is fair. The ID-only baseline is the same family of
+        pairwise SGD factorization (Section~\ref{sec:methodology}), not a
+        strawman; it loses on the cold-start slice for a structural reason
+        (no row/column exists for a withheld entity), not a tuning one.
+\end{enumerate}
+
+\subsection{Repository}
+
+The implementation, infrastructure, and the scripts that generate every
+table in this document are available in the accompanying repository. The
+results tables (Tables~\ref{tab:results} and \ref{tab:cold-start}) are
+emitted by \texttt{scripts/export\_results\_table.py} and the feature
+catalogue (Table~\ref{tab:features}) by
+\texttt{scripts/export\_feature\_tables.py}, so the document cannot drift
+away from the code.
