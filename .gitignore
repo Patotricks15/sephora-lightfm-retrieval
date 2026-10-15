@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.diagram-venv/
+.pytest_cache/
+.ruff_cache/
+
+# Data and artifacts
+data/*
+!data/.gitkeep
+artifacts/
+*.npz
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+terraform.tfvars
+terraform/.build/
+
+# LaTeX build residue (main.pdf is committed: the README links to it)
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.toc
+paper/*.bbl
+paper/*.blg
+paper/*.fls
+paper/*.fdb_latexmk
+paper/*.synctex.gz
+
+# Credentials
+.env
+kaggle.json
+
+# Floci emulator runtime state (contains generated TLS certs and private keys)
+.floci/

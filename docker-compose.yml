@@ -1,0 +1,12 @@
+services:
+  floci:
+    image: floci/floci:latest
+    container_name: floci-emulator
+    ports:
+      - "4566:4566"
+    environment:
+      FLOCI_STORAGE_MODE: memory
+      FLOCI_DEFAULT_REGION: us-east-1
+      FLOCI_SERVICES: dynamodb,events,iam,lambda,logs,s3,sts
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
