@@ -68,6 +68,15 @@ class HybridWARPRecommender:
             mis-ranked positive is found, and without this constraint the
             per-feature gradient steps compound across epochs and diverge --
             which is what happens if this is removed.
+        max_bias_magnitude: Every touched item-feature bias scalar is clipped
+            to ``[-max_bias_magnitude, max_bias_magnitude]``. Without this,
+            features shared by many low-popularity items (``popularity=0``,
+            ``context=new_arrival``) accumulate a runaway negative bias --
+            they are sampled as a WARP negative about as often as any other
+            item but are rarely a positive, so with only a weak L2 pull back
+            to zero their bias diverges far faster than the regularizer can
+            counteract. That would drown out the brand/category/ingredient
+            signal that is supposed to let a cold item still be retrieved.
         random_state: Seed controlling initialization and sampling.
     """
 
@@ -79,6 +88,7 @@ class HybridWARPRecommender:
     init_scale: float = 0.05
     lr_decay: float = 0.95
     max_embedding_norm: float = 8.0
+    max_bias_magnitude: float = 5.0
     random_state: int = 42
 
     user_embeddings: np.ndarray | None = None
@@ -237,12 +247,18 @@ class HybridWARPRecommender:
             self.item_embeddings[pos_item_idx] += delta_i
             bias_reg = lr * self.reg * self.item_bias[pos_item_idx]
             self.item_bias[pos_item_idx] += lr * weight - bias_reg
+            self.item_bias[pos_item_idx] = np.clip(
+                self.item_bias[pos_item_idx], -self.max_bias_magnitude, self.max_bias_magnitude
+            )
             self._clip_rows(self.item_embeddings, pos_item_idx)
         if neg_item_idx.size:
             delta_j = -lr * weight * p_u - lr * self.reg * self.item_embeddings[neg_item_idx]
             self.item_embeddings[neg_item_idx] += delta_j
             bias_reg_j = lr * self.reg * self.item_bias[neg_item_idx]
             self.item_bias[neg_item_idx] += -lr * weight - bias_reg_j
+            self.item_bias[neg_item_idx] = np.clip(
+                self.item_bias[neg_item_idx], -self.max_bias_magnitude, self.max_bias_magnitude
+            )
             self._clip_rows(self.item_embeddings, neg_item_idx)
 
         return loss

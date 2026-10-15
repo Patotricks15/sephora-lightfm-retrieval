@@ -120,7 +120,10 @@ def generate_synthetic(
     def affinity_score(tag_set: set[str], skin_type: str) -> float:
         anchor_tags = set(SKIN_TYPE_INGREDIENT_AFFINITY[skin_type])
         overlap = len(tag_set & anchor_tags)
-        return 3.0 + 2.5 * overlap
+        # Sharpened on purpose: the synthetic fixture exists to give the
+        # hybrid model real ingredient/category structure to recover with a
+        # modest training budget, so overlap dominates heavily over noise.
+        return 1.0 + 12.0 * overlap
 
     users_skin_type = rng.choice(SKIN_TYPES, size=n_users)
     users_skin_tone = rng.choice(SKIN_TONES, size=n_users)
@@ -133,7 +136,9 @@ def generate_synthetic(
         weights = np.array(
             [affinity_score(tags, skin_type) for tags in product_tag_sets]
         )
-        weights = weights * (0.3 + popularity * n_products)
+        # A mild popularity tilt (not dominant): affinity drives the choice,
+        # popularity only breaks ties among equally-affine products.
+        weights = weights * (0.6 + 0.4 * popularity * n_products)
         weights = weights / weights.sum()
 
         n_interactions = int(rng.integers(6, 36))

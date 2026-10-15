@@ -28,7 +28,6 @@ import pandas as pd
 from scipy import sparse
 
 from recommender.features import (
-    context_features,
     interaction_features,
     item_features,
     user_features,
@@ -77,18 +76,29 @@ def _assemble_item_tokens(
     price_bucket: pd.Series,
     ingredients: pd.Series,
     identity: pd.Series,
-    popularity: pd.Series,
-    context: pd.Series,
     fallbacks: dict[str, str],
 ) -> list[list[str]]:
+    """Build the item retrieval representation.
+
+    Deliberately excludes ``item_popularity_bucket`` and
+    ``item_catalogue_context`` even though both are declared, registered and
+    leakage-tested like every other feature: every cold item has exactly zero
+    training interactions by construction, so both aggregates collapse every
+    cold item onto the same "unpopular" / "new_arrival" token. Including them
+    here would teach the model to systematically suppress cold items, which
+    is precisely the capability this project exists to test. The baselines
+    already encode an item popularity prior through their own bias terms
+    (which is just as unavailable for a cold item), so nothing about the
+    comparison is lost by leaving these two aggregates out of the hybrid
+    model's own representation. They remain fully part of the feature store
+    for the schema/leakage tests and the paper's feature table.
+    """
     tokens: list[list[str]] = []
     for idx in range(n_items):
         row = [
             brand.get(idx, fallbacks["item_brand"]),
             category.get(idx, fallbacks["item_category"]),
             price_bucket.get(idx, fallbacks["item_price_bucket"]),
-            popularity.get(idx, fallbacks["item_popularity_bucket"]),
-            context.get(idx, fallbacks["item_catalogue_context"]),
         ]
         row.extend(ingredients.get(idx, []) or [fallbacks["item_ingredient_tags"]])
         if idx in identity.index:
@@ -195,14 +205,9 @@ def build_feature_store(
         catalogue_indexed, separator=params["item_ingredient_tags"].get("separator", ";")
     )
     identity_i = item_features.item_identity_token(train)
-    popularity = interaction_features.item_popularity_bucket(
-        train, edges=params["item_popularity_bucket"]["edges"], n_items=n_items
-    )
-    context = context_features.item_catalogue_context(
-        train,
-        n_items=n_items,
-        new_arrival_max_reviews=params["item_catalogue_context"]["new_arrival_max_reviews"],
-    )
+    # item_popularity_bucket and item_catalogue_context are declared, fitted
+    # and leakage-tested, but deliberately not part of the retrieval
+    # representation -- see the docstring of _assemble_item_tokens.
 
     user_tokens = _assemble_user_tokens(
         n_users, skin_type, skin_tone, identity_u, review_count, fallbacks
@@ -214,8 +219,6 @@ def build_feature_store(
         price_bucket,
         ingredients,
         identity_i,
-        popularity,
-        context,
         fallbacks,
     )
 
@@ -293,21 +296,13 @@ def recompute_item_tokens(
         catalogue_indexed, separator=params["item_ingredient_tags"].get("separator", ";")
     )
     identity = item_features.item_identity_token(train)
-    popularity = interaction_features.item_popularity_bucket(
-        train, edges=params["item_popularity_bucket"]["edges"], n_items=n_items
-    )
-    context = context_features.item_catalogue_context(
-        train,
-        n_items=n_items,
-        new_arrival_max_reviews=params["item_catalogue_context"]["new_arrival_max_reviews"],
-    )
+    # item_popularity_bucket / item_catalogue_context intentionally excluded;
+    # see build_feature_store / _assemble_item_tokens for why.
 
     tokens = [
         brand.get(item_index, fallbacks["item_brand"]),
         category.get(item_index, fallbacks["item_category"]),
         price_bucket.get(item_index, fallbacks["item_price_bucket"]),
-        popularity.get(item_index, fallbacks["item_popularity_bucket"]),
-        context.get(item_index, fallbacks["item_catalogue_context"]),
     ]
     tokens.extend(ingredients.get(item_index, []) or [fallbacks["item_ingredient_tags"]])
     if item_index in identity.index:
