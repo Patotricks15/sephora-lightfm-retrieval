@@ -1,0 +1,177 @@
+# Declarative feature specification.
+#
+# Unlike the sibling BPR/SVD portfolio projects, these features are not an
+# auxiliary signal bolted onto an ID-indexed factorization: they ARE the
+# representation the hybrid model factorizes. A user vector is the sum of the
+# embeddings of every token below that applies to that user; an item vector
+# is the sum of the embeddings of every token that applies to that item. This
+# file is consumed identically by training and by the serving path, which is
+# what lets `tests/test_features_parity.py` assert the two never drift apart.
+#
+# fit_on: catalogue    -> known before any interaction exists (brand, price, ...)
+# fit_on: profile      -> a static user attribute, known at signup/request time
+# fit_on: train_only   -> vocabulary/statistics may only use the train partition
+#                         (this is what makes identity features genuinely
+#                         unavailable for cold users/items, not just "unseen")
+# point_in_time: true  -> the aggregate additionally uses a strict `<` cutoff
+#                         against each user's own interaction_order
+
+version: 1
+
+features:
+  - name: user_skin_type
+    family: user
+    kind: categorical
+    module: user_features
+    transform: user_skin_type
+    params: {}
+    fit_on: profile
+    point_in_time: false
+    fallback: "skin_type=unknown"
+    rationale: >
+      Core demographic attribute driving taste. Known at signup, so it is
+      available for every user including ones with zero training history --
+      the attribute a brand-new user supplies is exactly what lets the hybrid
+      model place them near users with similar skin.
+
+  - name: user_skin_tone
+    family: user
+    kind: categorical
+    module: user_features
+    transform: user_skin_tone
+    params: {}
+    fit_on: profile
+    point_in_time: false
+    fallback: "skin_tone=unknown"
+    rationale: >
+      Secondary demographic attribute (shade matching for base/coverage
+      products). Same availability argument as skin type.
+
+  - name: user_identity
+    family: user
+    kind: identity
+    module: user_features
+    transform: user_identity_token
+    params: {}
+    fit_on: train_only
+    point_in_time: false
+    fallback: null
+    rationale: >
+      Per-user ID feature, LightFM-style: lets the model retain personalised
+      signal for warm users without it being the *only* signal. The
+      vocabulary is restricted to users seen in training, so a cold user
+      genuinely has no ID token available -- this is the feature that
+      operationalizes "cold start" rather than merely asserting it.
+
+  - name: item_brand
+    family: item
+    kind: categorical
+    module: item_features
+    transform: item_brand
+    params: {}
+    fit_on: catalogue
+    point_in_time: false
+    fallback: "brand=unknown"
+    rationale: >
+      Brand loyalty is a strong prior independent of any single product's
+      review history, and is known the moment a product is catalogued.
+
+  - name: item_category
+    family: item
+    kind: categorical
+    module: item_features
+    transform: item_category
+    params: {}
+    fit_on: catalogue
+    point_in_time: false
+    fallback: "category=unknown"
+    rationale: >
+      Coarse product type (serum vs. cleanser vs. sunscreen). Known at
+      catalogue time, safe for cold items by construction.
+
+  - name: item_price_bucket
+    family: item
+    kind: categorical
+    module: item_features
+    transform: item_price_bucket
+    params: {edges: [15, 30, 50, 80]}
+    fit_on: catalogue
+    point_in_time: false
+    fallback: "price_bucket=unknown"
+    rationale: >
+      Discretized price tier. Budget shoppers and prestige shoppers cluster
+      on this signal regardless of brand or category.
+
+  - name: item_ingredient_tags
+    family: item
+    kind: multi_categorical
+    module: item_features
+    transform: item_ingredient_tags
+    params: {separator: ";"}
+    fit_on: catalogue
+    point_in_time: false
+    fallback: "ingredient=unknown"
+    rationale: >
+      The content signal that actually explains taste: a Dry-skin user's
+      affinity is for Hyaluronic-Acid / Ceramide products specifically, not
+      for "Moisturizers" as a category. This is what lets the model recommend
+      a brand-new product that happens to share tags with liked products.
+
+  - name: item_identity
+    family: item
+    kind: identity
+    module: item_features
+    transform: item_identity_token
+    params: {}
+    fit_on: train_only
+    point_in_time: false
+    fallback: null
+    rationale: >
+      Mirrors user_identity: vocabulary restricted to items seen in training,
+      so a cold item has no ID token and must be scored through its
+      brand/category/ingredient tokens alone.
+
+  - name: user_review_count_bucket
+    family: interaction
+    kind: categorical
+    module: interaction_features
+    transform: user_review_count_bucket
+    params: {edges: [3, 8, 16]}
+    fit_on: train_only
+    point_in_time: true
+    fallback: "review_count=none"
+    rationale: >
+      Confidence weighting: a user with 40 training reviews has a much more
+      reliable taste signal than one with 3. Computed with a strict `<`
+      cutoff against the user's own interaction_order so it can never see
+      the very review it is being used to help predict.
+
+  - name: item_popularity_bucket
+    family: interaction
+    kind: categorical
+    module: interaction_features
+    transform: item_popularity_bucket
+    params: {edges: [5, 15, 40]}
+    fit_on: train_only
+    point_in_time: false
+    fallback: "popularity=unseen"
+    rationale: >
+      Popularity prior used by the most-popular baseline and as part of the
+      cold-start fallback ordering. Fitted on the training partition only, so
+      held-out interactions never inflate a product's apparent popularity.
+
+  - name: item_catalogue_context
+    family: context
+    kind: categorical
+    module: context_features
+    transform: item_catalogue_context
+    params: {new_arrival_max_reviews: 4}
+    fit_on: train_only
+    point_in_time: false
+    fallback: "context=new_arrival"
+    rationale: >
+      Distinguishes an "established" item (enough training reviews to trust
+      its popularity/ingredient signal) from a "new_arrival" (sparse or
+      zero training reviews). Cold items always fall back to this value,
+      documenting that they are indistinguishable from genuinely new catalog
+      entries from the model's point of view.

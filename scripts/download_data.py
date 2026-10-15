@@ -98,10 +98,11 @@ def generate_synthetic(
         low, high = PRICE_BUCKET_BY_CATEGORY[category]
         price = round(float(rng.uniform(low, high)), 2)
 
+        category_label = category[:-1] if category.endswith("s") else category
         product_rows.append(
             {
                 "product_id": f"P{pid:05d}",
-                "product_name": f"Synthetic {category[:-1] if category.endswith('s') else category} {pid:04d}",
+                "product_name": f"Synthetic {category_label} {pid:04d}",
                 "brand_name": brands[pid - 1],
                 "primary_category": category,
                 "price_usd": price,
